@@ -1,9 +1,4 @@
-import {
-  Application,
-  Container,
-  Graphics,
-  Sprite,
-} from "pixi.js";
+import { Application, Container, Graphics, Sprite, Assets } from "pixi.js";
 import { ParticlePool } from "./core/ParticlePool";
 import { SpatialHash } from "./core/SpatialHash";
 import { CoverageMap } from "./core/CoverageMap";
@@ -27,6 +22,7 @@ export class Engine {
   // Central cleaning object
   objectContainer!: Container;
   objectGraphics!: Graphics;
+  objectTextureSprite!: Sprite;
   objectBounds!: { x: number; y: number; width: number; height: number };
 
   pool = new ParticlePool(8000);
@@ -81,7 +77,7 @@ export class Engine {
         width: level.width,
         height: level.height,
         antialias: true,
-        backgroundAlpha: 0,
+        background: 0xf5f5f5, // Light gray background
       });
 
       console.log("PixiJS app initialized", this.app);
@@ -108,7 +104,7 @@ export class Engine {
       this.objectContainer.x = level.width / 2;
       this.objectContainer.y = level.height / 2;
 
-      // Create object graphics (centered in container)
+      // Create background graphics (for fallback)
       this.objectGraphics = new Graphics();
       this.objectGraphics.rect(
         -this.objectBounds.width / 2,
@@ -116,8 +112,38 @@ export class Engine {
         this.objectBounds.width,
         this.objectBounds.height
       );
-      this.objectGraphics.fill(0x8b5a2b); // Brown color for the object
+      this.objectGraphics.fill(0xf0f0f0); // Light background for the card
       this.objectContainer.addChild(this.objectGraphics);
+
+      // Load and add texture image
+      try {
+        // Use the existing poster image from assets
+        const imageUrl = "/assets/images/poster_001.svg";
+        const texture = await Assets.load(imageUrl);
+
+        this.objectTextureSprite = new Sprite(texture);
+
+        // Scale image to fit the object bounds
+        const scaleX = this.objectBounds.width / this.objectTextureSprite.width;
+        const scaleY =
+          this.objectBounds.height / this.objectTextureSprite.height;
+        const scale = Math.min(scaleX, scaleY); // Maintain aspect ratio
+
+        this.objectTextureSprite.scale.set(scale);
+        this.objectTextureSprite.anchor.set(0.5); // Center the image
+        this.objectTextureSprite.x = 0;
+        this.objectTextureSprite.y = 0;
+
+        this.objectContainer.addChild(this.objectTextureSprite);
+        console.log("Object texture loaded successfully");
+      } catch (error) {
+        console.warn(
+          "Failed to load object texture, using solid color fallback:",
+          error
+        );
+        // Fallback to solid color if image loading fails
+        this.objectGraphics.fill(0x8b5a2b);
+      }
 
       // Create a dummy sprite for the imageSprite reference (not used anymore)
       this.imageSprite = new Sprite();
@@ -176,30 +202,126 @@ export class Engine {
     this.usingHose = on;
   }
 
+  // Spring animation properties
+  private currentRotX = 0;
+  private currentRotY = 0;
+  private targetRotX = 0;
+  private targetRotY = 0;
+
   private updateObjectTilt() {
     // Calculate distance from cursor to object center
     const centerX = this.app.screen.width / 2;
     const centerY = this.app.screen.height / 2;
-    
+
     const deltaX = this.pointer.x - centerX;
     const deltaY = this.pointer.y - centerY;
-    
-    // Normalize to get tilt angles (max 15 degrees)
-    const maxTilt = 0.26; // ~15 degrees in radians
-    const tiltStrength = 0.0005; // Sensitivity
-    
-    const tiltX = Math.max(-maxTilt, Math.min(maxTilt, deltaY * tiltStrength));
-    const tiltY = Math.max(-maxTilt, Math.min(maxTilt, -deltaX * tiltStrength));
-    
-    // Apply 3D-style transform using skew and scale to simulate perspective
-    // This creates a Pokemon card-like effect
-    const scaleFactorX = 1 + Math.abs(tiltY) * 0.1;
-    const scaleFactorY = 1 + Math.abs(tiltX) * 0.1;
-    
-    this.objectContainer.skew.x = tiltX;
-    this.objectContainer.skew.y = tiltY;
-    this.objectContainer.scale.x = scaleFactorX;
-    this.objectContainer.scale.y = scaleFactorY;
+
+    // Calculate distance from center
+    const distanceFromCenter = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    // Define influence radius (larger area for more responsive effect)
+    const maxInfluenceRadius =
+      Math.min(this.app.screen.width, this.app.screen.height) * 0.8;
+
+    // Calculate influence strength based on distance (closer = stronger attraction)
+    const influenceStrength = Math.max(
+      0,
+      1 - distanceFromCenter / maxInfluenceRadius
+    );
+
+    if (influenceStrength > 0) {
+      // Calculate target rotation based on cursor position with gravity-like attraction
+      // Normalize relative to influence radius for consistent rotation
+      const normalizedX = deltaX / maxInfluenceRadius;
+      const normalizedY = deltaY / maxInfluenceRadius;
+
+      // Calculate target rotation angles - much more visible effect
+      const maxTiltDegrees = 35; // Increased from 20 to 35 degrees for more dramatic effect
+      const effectiveMaxTilt = maxTiltDegrees * influenceStrength;
+
+      // The object "leans" toward the cursor like it's being attracted
+      this.targetRotX = normalizedY * effectiveMaxTilt * 1.2; // Up/down (amplified)
+      this.targetRotY = normalizedX * effectiveMaxTilt * 1.2; // Left/right (amplified)
+
+      // Clamp to effective max tilt
+      this.targetRotX = Math.max(
+        -effectiveMaxTilt,
+        Math.min(effectiveMaxTilt, this.targetRotX)
+      );
+      this.targetRotY = Math.max(
+        -effectiveMaxTilt,
+        Math.min(effectiveMaxTilt, this.targetRotY)
+      );
+    } else {
+      // When cursor is too far away, return to center (0, 0)
+      this.targetRotX = 0;
+      this.targetRotY = 0;
+    }
+
+    // Apply spring animation to smoothly reach target rotation
+    this.updateSpringAnimation();
+
+    // Apply the current rotation
+    this.apply3DRotation(this.currentRotX, this.currentRotY);
+  }
+
+  private updateSpringAnimation() {
+    // Spring physics constants - more responsive for gravity effect
+    const springStiffness = 0.12; // How quickly it moves toward target
+    const springDamping = 0.85; // How much it bounces/oscillates
+
+    // Calculate spring forces
+    const forceX = (this.targetRotX - this.currentRotX) * springStiffness;
+    const forceY = (this.targetRotY - this.currentRotY) * springStiffness;
+
+    // Apply forces with damping
+    this.currentRotX += forceX;
+    this.currentRotY += forceY;
+
+    // Apply damping to prevent oscillation
+    this.currentRotX *= springDamping;
+    this.currentRotY *= springDamping;
+
+    // Snap to target when very close (prevents infinite tiny movements)
+    if (Math.abs(this.targetRotX - this.currentRotX) < 0.05) {
+      this.currentRotX = this.targetRotX;
+    }
+    if (Math.abs(this.targetRotY - this.currentRotY) < 0.05) {
+      this.currentRotY = this.targetRotY;
+    }
+  }
+
+  private apply3DRotation(rotateX: number, rotateY: number) {
+    // Convert degrees to radians
+    const rotXRad = (rotateX * Math.PI) / 180;
+    const rotYRad = (rotateY * Math.PI) / 180;
+
+    // Calculate 3D rotation matrix components
+    const cosX = Math.cos(rotXRad);
+    const cosY = Math.cos(rotYRad);
+    const sinY = Math.sin(rotYRad);
+
+    // Pure 3D rotation without skewing - like CSS rotateX/rotateY
+    // Only apply perspective foreshortening (scaling) and Z-rotation
+
+    // Perspective foreshortening (objects appear smaller when tilted away)
+    const scaleX = Math.abs(cosY); // Y rotation affects X scale
+    const scaleY = Math.abs(cosX); // X rotation affects Y scale
+
+    // Apply clean 3D transform without skewing
+    this.objectContainer.scale.x = scaleX;
+    this.objectContainer.scale.y = scaleY;
+
+    // Remove skewing completely for clean rotation
+    this.objectContainer.skew.x = 0;
+    this.objectContainer.skew.y = 0;
+
+    // Pure Z-rotation based on Y-axis rotation (like a card turning)
+    this.objectContainer.rotation = sinY * 0.3;
+
+    // Keep object perfectly centered (rotate around center)
+    this.objectContainer.x = this.app.screen.width / 2;
+    this.objectContainer.y = this.app.screen.height / 2;
   }
 
   private update = (ticker: any) => {
