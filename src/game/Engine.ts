@@ -44,6 +44,7 @@ export class Engine {
   pointer = { x: 0, y: 0 };
   isPressed = false;
   waterStream?: WaterStream;
+  currentLevel?: LevelConfig;
 
   private lastProgress = 0;
   private completionTriggered = false;
@@ -67,6 +68,7 @@ export class Engine {
       );
       this.tools = tools;
       this.events = events;
+      this.currentLevel = level; // Store level for reset functionality
       this.completionTriggered = false;
 
       this.app = new Application();
@@ -215,6 +217,23 @@ export class Engine {
 
   toggleHose(on: boolean) {
     this.usingHose = on;
+  }
+
+  resetDirt() {
+    // Clear existing dirt
+    this.dirt.cleanup();
+
+    // Clear coverage map
+    this.cov.clear();
+
+    // Respawn dirt with current level configuration
+    if (this.currentLevel) {
+      this.dirt.spawn(this.currentLevel, this.objectBounds);
+      console.log(
+        "Dirt reset, new particles:",
+        this.dirt.getParticles().length
+      );
+    }
   }
 
   // Spring animation properties
@@ -425,20 +444,19 @@ export class Engine {
           dt
         );
 
-        // Use the stream's impact point for cleaning
-        const impactPoint = this.waterStream.getImpactPoint();
-        const impactObj = this.worldToObjectCoords(
-          impactPoint.x,
-          impactPoint.y
+        // Clean along the entire water stream path
+        const segments = this.waterStream.getSegments();
+
+        // Convert all segments to object-relative coordinates
+        const objSegments = segments.map((segment) =>
+          this.worldToObjectCoords(segment.x, segment.y)
         );
 
-        this.hose.update(
-          impactObj.x - 20, // Offset for nozzle effect
-          impactObj.y - 20,
-          impactObj.x,
-          impactObj.y,
-          this.tools.hose.angleDeg,
-          this.tools.hose.range,
+        // Apply stream cleaning along the entire path
+        const streamWidth = this.tools.hose.range * 0.4; // Width of cleaning area along stream
+        this.hose.updateStreamPath(
+          objSegments,
+          streamWidth,
           this.tools.hose.force
         );
       } else {

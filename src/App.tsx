@@ -34,6 +34,11 @@ export default function App() {
     gameRef.current?.toggleHose(on);
   };
 
+  const handleResetDirt = () => {
+    gameRef.current?.resetDirt();
+    setProgress(0); // Reset progress when dirt is reset
+  };
+
   const handleRestart = () => {
     setScreen("playing");
     setProgress(0);
@@ -69,6 +74,7 @@ export default function App() {
           />
           <HUD
             onToggleHose={handleToggleHose}
+            onResetDirt={handleResetDirt}
             progress={progress}
             stats={stats}
           />

@@ -24,6 +24,7 @@ const tools: ToolsConfig = {
 
 export interface GameCanvasRef {
   toggleHose: (on: boolean) => void;
+  resetDirt: () => void;
   getStats: () => any;
 }
 
@@ -40,6 +41,9 @@ const GameCanvas = forwardRef<GameCanvasRef, GameCanvasProps>(
     useImperativeHandle(ref, () => ({
       toggleHose: (on: boolean) => {
         engineRef.current?.toggleHose(on);
+      },
+      resetDirt: () => {
+        engineRef.current?.resetDirt();
       },
       getStats: () => {
         return engineRef.current?.getStats() || {};

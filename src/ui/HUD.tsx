@@ -2,11 +2,12 @@ import { useState } from "react";
 
 interface HUDProps {
   onToggleHose: (on: boolean) => void;
+  onResetDirt?: () => void;
   progress: number;
   stats?: any;
 }
 
-export function HUD({ onToggleHose, progress, stats }: HUDProps) {
+export function HUD({ onToggleHose, onResetDirt, progress, stats }: HUDProps) {
   const [hose, setHose] = useState(false);
 
   const handleToggleHose = () => {
@@ -94,6 +95,32 @@ export function HUD({ onToggleHose, progress, stats }: HUDProps) {
         >
           {hose ? "🚿 Hose ON" : "✋ Scrub"}
         </button>
+
+        {/* Reset Dirt Button for debugging */}
+        {onResetDirt && (
+          <button
+            onClick={onResetDirt}
+            style={{
+              padding: "8px 16px",
+              background: "rgba(255, 165, 0, 0.8)",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "14px",
+              cursor: "pointer",
+              minWidth: "100px",
+              transition: "background 0.2s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255, 165, 0, 1)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255, 165, 0, 0.8)";
+            }}
+          >
+            🔄 Reset Dirt
+          </button>
+        )}
       </div>
 
       {/* Debug Info */}

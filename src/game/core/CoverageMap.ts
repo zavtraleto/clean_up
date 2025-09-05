@@ -41,4 +41,10 @@ export class CoverageMap {
   progress() {
     return this.total > 0 ? 1 - this.dirty / this.total : 0;
   }
+
+  clear() {
+    this.data.fill(0);
+    this.total = 0;
+    this.dirty = 0;
+  }
 }
