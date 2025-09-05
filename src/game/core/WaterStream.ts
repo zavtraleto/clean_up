@@ -7,9 +7,9 @@ export class WaterStream {
     targetX: number;
     targetY: number;
   }[] = [];
-  private segmentCount = 10;
-  private springStiffness = 0.15;
-  private damping = 0.85;
+  private segmentCount = 12; // More segments for smoother flow
+  private springStiffness = 0.03; // Much softer (was 0.15)
+  private damping = 0.95; // More damping (was 0.85)
 
   constructor(startX: number, startY: number, endX: number, endY: number) {
     this.initializeSegments(startX, startY, endX, endY);
@@ -69,19 +69,19 @@ export class WaterStream {
       segment.vx *= this.damping;
       segment.vy *= this.damping;
 
-      // Update position
-      segment.x += segment.vx * deltaTime * 60; // Normalize for 60fps
-      segment.y += segment.vy * deltaTime * 60;
+      // Update position with much slower, more fluid movement
+      segment.x += segment.vx * deltaTime * 20; // Much slower (was 60)
+      segment.y += segment.vy * deltaTime * 20;
 
-      // Add influence from previous segment for wave propagation
+      // Add gentle influence from previous segment for wave propagation
       if (i > 0) {
         const prevSegment = this.segments[i - 1];
-        const influenceStrength = 0.3;
+        const influenceStrength = 0.08; // Much gentler influence (was 0.3)
         const influenceX = (prevSegment.x - segment.x) * influenceStrength;
         const influenceY = (prevSegment.y - segment.y) * influenceStrength;
 
-        segment.vx += influenceX * deltaTime * 60;
-        segment.vy += influenceY * deltaTime * 60;
+        segment.vx += influenceX * deltaTime * 20; // Slower influence
+        segment.vy += influenceY * deltaTime * 20;
       }
     }
   }
