@@ -2,7 +2,7 @@ import { Particle } from "../core/Particle";
 import { ParticleState } from "../types";
 
 export class PhysicsSystem {
-  constructor(private width: number, private height: number) {}
+  constructor(private objectWidth: number, private objectHeight: number) {}
 
   integrate(p: Particle, dt: number) {
     // Only apply physics to LOOSE particles - STUCK particles stay in place
@@ -21,8 +21,15 @@ export class PhysicsSystem {
     p.x += p.vx * dt * 8;
     p.y += p.vy * dt * 8;
 
-    // Boundary check
-    if (p.x < 0 || p.x > this.width || p.y < 0 || p.y > this.height) {
+    // Boundary check - use much larger bounds since particles are in object-relative coordinates
+    // Allow particles to fly far beyond the object before removing them
+    const maxDistance = Math.max(this.objectWidth, this.objectHeight) * 4; // 4x the object size
+    if (
+      p.x < -maxDistance ||
+      p.x > maxDistance ||
+      p.y < -maxDistance ||
+      p.y > maxDistance
+    ) {
       p.alive = false;
     }
   }

@@ -153,6 +153,10 @@ export class Engine {
       this.stage.addChild(this.particlesLayer);
       this.stage.addChild(this.hoseLayer);
 
+      // Position particles layer to match object container (for 3D transforms)
+      this.particlesLayer.x = level.width / 2;
+      this.particlesLayer.y = level.height / 2;
+
       // Initialize systems
       this.cov = new CoverageMap(level.width, level.height, 16);
       this.dirt = new DirtSystem(this.pool, this.cov);
@@ -322,6 +326,57 @@ export class Engine {
     // Keep object perfectly centered (rotate around center)
     this.objectContainer.x = this.app.screen.width / 2;
     this.objectContainer.y = this.app.screen.height / 2;
+
+    // Apply the SAME transforms to particles layer so dirt rotates with object
+    this.particlesLayer.scale.x = scaleX;
+    this.particlesLayer.scale.y = scaleY;
+    this.particlesLayer.skew.x = 0;
+    this.particlesLayer.skew.y = 0;
+    this.particlesLayer.rotation = sinY * 0.3;
+    this.particlesLayer.x = this.app.screen.width / 2;
+    this.particlesLayer.y = this.app.screen.height / 2;
+  }
+
+  private worldToObjectCoords(
+    worldX: number,
+    worldY: number
+  ): { x: number; y: number } {
+    // Convert from world coordinates to object-relative coordinates
+    // taking into account the current 3D transforms
+
+    // First, translate to object center
+    const centerX = this.app.screen.width / 2;
+    const centerY = this.app.screen.height / 2;
+    const relX = worldX - centerX;
+    const relY = worldY - centerY;
+
+    // Apply inverse transforms to get back to object space
+    const rotXRad = (this.currentRotX * Math.PI) / 180;
+    const rotYRad = (this.currentRotY * Math.PI) / 180;
+
+    const cosX = Math.cos(rotXRad);
+    const cosY = Math.cos(rotYRad);
+    const sinY = Math.sin(rotYRad);
+
+    const scaleX = Math.abs(cosY);
+    const scaleY = Math.abs(cosX);
+    const rotationZ = sinY * 0.3;
+
+    // Reverse the transforms
+    let objX = relX / scaleX;
+    let objY = relY / scaleY;
+
+    // Reverse rotation
+    if (rotationZ !== 0) {
+      const cos = Math.cos(-rotationZ);
+      const sin = Math.sin(-rotationZ);
+      const newX = objX * cos - objY * sin;
+      const newY = objX * sin + objY * cos;
+      objX = newX;
+      objY = newY;
+    }
+
+    return { x: objX, y: objY };
   }
 
   private update = (ticker: any) => {
@@ -336,19 +391,32 @@ export class Engine {
 
     // Apply input interactions
     if (this.usingHose) {
-      this.hose.update(
-        this.nozzle.x,
-        this.nozzle.y,
+      // Convert world coordinates to object-relative coordinates for cleaning
+      const nozzleObj = this.worldToObjectCoords(this.nozzle.x, this.nozzle.y);
+      const pointerObj = this.worldToObjectCoords(
         this.pointer.x,
-        this.pointer.y,
+        this.pointer.y
+      );
+
+      this.hose.update(
+        nozzleObj.x,
+        nozzleObj.y,
+        pointerObj.x,
+        pointerObj.y,
         this.tools.hose.angleDeg,
         this.tools.hose.range,
         this.tools.hose.force
       );
     } else {
-      this.scrub.update(
+      // Convert world coordinates to object-relative coordinates for cleaning
+      const pointerObj = this.worldToObjectCoords(
         this.pointer.x,
-        this.pointer.y,
+        this.pointer.y
+      );
+
+      this.scrub.update(
+        pointerObj.x,
+        pointerObj.y,
         performance.now() / 1000,
         this.tools.scrub.radius,
         this.tools.scrub.loosenChance,

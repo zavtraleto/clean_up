@@ -12,12 +12,20 @@ export class DirtSystem {
     private rng = Math.random
   ) {}
 
-  spawn(level: LevelConfig, objectBounds?: { x: number; y: number; width: number; height: number }) {
+  spawn(
+    level: LevelConfig,
+    objectBounds?: { x: number; y: number; width: number; height: number }
+  ) {
     // Clear existing particles
     this.particles.length = 0;
 
     // Use object bounds if provided, otherwise use full level area
-    const bounds = objectBounds || { x: 0, y: 0, width: level.width, height: level.height };
+    const bounds = objectBounds || {
+      x: 0,
+      y: 0,
+      width: level.width,
+      height: level.height,
+    };
     const area = bounds.width * bounds.height;
     const baseCount = (area / 400) | 0; // ~1 per 20x20px (much denser)
 
@@ -27,9 +35,10 @@ export class DirtSystem {
         const p = this.pool.acquire();
         if (!p) break;
 
-        // Spawn only within bounds
-        const x = bounds.x + this.rng() * bounds.width;
-        const y = bounds.y + this.rng() * bounds.height;
+        // Spawn in object-relative coordinates (centered around 0,0)
+        // Since particles layer is now centered, we need relative coordinates
+        const x = (this.rng() - 0.5) * bounds.width; // -width/2 to +width/2
+        const y = (this.rng() - 0.5) * bounds.height; // -height/2 to +height/2
         const size =
           layer.sizeRange[0] +
           this.rng() * (layer.sizeRange[1] - layer.sizeRange[0]);
@@ -37,7 +46,11 @@ export class DirtSystem {
         p.reset(x, y, size);
         p.state = ParticleState.STUCK;
         this.particles.push(p);
-        this.cov.addAt(x, y, size); // weight by size
+
+        // For coverage map, we still need world coordinates
+        const worldX = bounds.x + bounds.width / 2 + x;
+        const worldY = bounds.y + bounds.height / 2 + y;
+        this.cov.addAt(worldX, worldY, size); // weight by size
       }
     }
   }
