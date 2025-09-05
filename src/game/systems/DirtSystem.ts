@@ -1,10 +1,14 @@
 import { Particle } from "../core/Particle";
 import { ParticlePool } from "../core/ParticlePool";
 import { CoverageMap } from "../core/CoverageMap";
-import { LevelConfig, ParticleState } from "../types";
+import { DirtLayer } from "../core/DirtLayer";
+import { LevelConfig } from "../types";
+import { DirtType } from "../types/DirtTypes";
+import { DIRT_CONFIGS } from "../config/DirtConfigs";
 
 export class DirtSystem {
-  particles: Particle[] = [];
+  private dirtLayers: DirtLayer[] = [];
+  private allParticles: Particle[] = [];
 
   constructor(
     private pool: ParticlePool,
@@ -16,8 +20,8 @@ export class DirtSystem {
     level: LevelConfig,
     objectBounds?: { x: number; y: number; width: number; height: number }
   ) {
-    // Clear existing particles
-    this.particles.length = 0;
+    // Clear existing dirt
+    this.cleanup();
 
     // Use object bounds if provided, otherwise use full level area
     const bounds = objectBounds || {
@@ -26,40 +30,71 @@ export class DirtSystem {
       width: level.width,
       height: level.height,
     };
-    const area = bounds.width * bounds.height;
-    const baseCount = (area / 400) | 0; // ~1 per 20x20px (much denser)
 
-    for (const layer of level.dirtLayers) {
-      const count = (baseCount * layer.density) | 0;
+    // Create dirt layers based on priority (higher priority = spawned later = on top)
+    const dirtTypes = Object.values(DirtType).sort(
+      (a, b) => DIRT_CONFIGS[a].layerPriority - DIRT_CONFIGS[b].layerPriority
+    );
+
+    // Spawn each dirt type in layers
+    dirtTypes.forEach((dirtType, layerIndex) => {
+      const layer = new DirtLayer(dirtType, layerIndex, this.pool);
+      this.dirtLayers.push(layer);
+
+      const config = DIRT_CONFIGS[dirtType];
+      const area = bounds.width * bounds.height;
+      const baseCount = (area / 600) | 0; // Base density
+      const count = (baseCount * config.spawnWeight) | 0;
+
+      // Spawn clusters of this dirt type
       for (let i = 0; i < count; i++) {
-        const p = this.pool.acquire();
-        if (!p) break;
+        // Random position in object-relative coordinates
+        const x = (this.rng() - 0.5) * bounds.width;
+        const y = (this.rng() - 0.5) * bounds.height;
 
-        // Spawn in object-relative coordinates (centered around 0,0)
-        // Since particles layer is now centered, we need relative coordinates
-        const x = (this.rng() - 0.5) * bounds.width; // -width/2 to +width/2
-        const y = (this.rng() - 0.5) * bounds.height; // -height/2 to +height/2
-        const size =
-          layer.sizeRange[0] +
-          this.rng() * (layer.sizeRange[1] - layer.sizeRange[0]);
+        const newParticles = layer.spawnCluster(x, y);
+        this.allParticles.push(...newParticles);
 
-        p.reset(x, y, size);
-        p.state = ParticleState.STUCK;
-        this.particles.push(p);
-
-        // For coverage map, we still need world coordinates
-        const worldX = bounds.x + bounds.width / 2 + x;
-        const worldY = bounds.y + bounds.height / 2 + y;
-        this.cov.addAt(worldX, worldY, size); // weight by size
+        // Add to coverage map (convert to world coordinates for tracking)
+        for (const particle of newParticles) {
+          const worldX = bounds.x + bounds.width / 2 + particle.x;
+          const worldY = bounds.y + bounds.height / 2 + particle.y;
+          this.cov.addAt(worldX, worldY, particle.size);
+        }
       }
+    });
+  }
+
+  getParticles(): Particle[] {
+    return this.allParticles;
+  }
+
+  removeParticle(particle: Particle) {
+    // Remove from the appropriate layer
+    const layer = this.dirtLayers.find((l) =>
+      l.getParticles().includes(particle)
+    );
+    if (layer) {
+      layer.removeParticle(particle);
+    }
+
+    // Remove from all particles list
+    const index = this.allParticles.indexOf(particle);
+    if (index !== -1) {
+      this.allParticles.splice(index, 1);
     }
   }
 
+  getDirtLayers(): DirtLayer[] {
+    return this.dirtLayers;
+  }
+
   cleanup() {
-    // Return all particles to pool
-    for (const p of this.particles) {
-      this.pool.release(p);
+    // Clear all layers
+    for (const layer of this.dirtLayers) {
+      layer.clear();
     }
-    this.particles.length = 0;
+    this.dirtLayers.length = 0;
+    this.allParticles.length = 0;
   }
 }

@@ -10,7 +10,7 @@ import { PhysicsSystem } from "./systems/PhysicsSystem";
 import { ProgressSystem } from "./systems/ProgressSystem";
 import { EffectsSystem } from "./systems/EffectsSystem";
 import { Particle } from "./core/Particle";
-import { LevelConfig, ToolsConfig, ParticleState, GameEvents } from "./types";
+import { LevelConfig, ToolsConfig, GameEvents } from "./types";
 
 export class Engine {
   app!: Application;
@@ -384,10 +384,11 @@ export class Engine {
 
     // Rebuild spatial hash
     this.hash.clear();
-    this.pool.forEach((p) => {
-      if (!p.alive) return;
+    const allParticles = this.dirt.getParticles();
+    for (const p of allParticles) {
+      if (!p.alive) continue;
       this.hash.insert(p);
-    });
+    }
 
     // Apply input interactions
     if (this.usingHose) {
@@ -428,16 +429,18 @@ export class Engine {
     this.updateObjectTilt();
 
     // Physics & cull dead particles
+    const activeParticles = this.dirt.getParticles();
     const toRemove: Particle[] = [];
-    this.pool.forEach((p) => {
-      if (!p.alive) return;
+
+    for (const p of activeParticles) {
+      if (!p.alive) continue;
       this.phys.integrate(p, dt);
       if (!p.alive) toRemove.push(p);
-    });
+    }
 
-    // Remove dead particles from pool
+    // Remove dead particles from dirt system
     for (const p of toRemove) {
-      this.pool.release(p);
+      this.dirt.removeParticle(p);
     }
 
     // Render particles
@@ -470,35 +473,53 @@ export class Engine {
     this.spritePool.releaseAll();
 
     let count = 0;
-    this.pool.forEach((p) => {
-      if (!p.alive) return;
+    const particles = this.dirt.getParticles();
+
+    for (const p of particles) {
+      if (!p.alive) continue;
       count++;
 
       const sprite = this.spritePool.acquire();
       if (!sprite) return; // Pool exhausted
 
-      // Different colors based on size and state for realistic dirt
-      let color: number;
-      if (p.state === ParticleState.STUCK) {
-        // Stuck dirt - darker, varies by size
-        if (p.size <= 2) color = 0x2d2419; // Fine dark dirt
-        else if (p.size <= 4) color = 0x372b22; // Medium brown dirt
-        else color = 0x1a1511; // Large dark clumps
-      } else {
-        // Loose dirt - slightly lighter when disturbed
-        if (p.size <= 2) color = 0x3d332a; // Fine loose dirt
-        else if (p.size <= 4) color = 0x4a3b2f; // Medium loose dirt
-        else color = 0x2a211a; // Large loose clumps
+      // Use dirt-specific visual properties
+      const color = p.color;
+      const alpha = p.alpha;
+      const size = p.size;
+
+      // Render different shapes based on dirt type
+      sprite.clear();
+      sprite.alpha = alpha;
+
+      switch (p.shape) {
+        case "circle":
+          sprite.circle(p.x, p.y, size / 2).fill(color);
+          break;
+        case "square":
+          sprite.rect(p.x - size / 2, p.y - size / 2, size, size).fill(color);
+          break;
+        case "blob":
+          // Create a slightly irregular blob shape
+          const points: number[] = [];
+          const segments = 8;
+          for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const radius = (size / 2) * (0.8 + Math.random() * 0.4); // Vary radius
+            const x = p.x + Math.cos(angle) * radius;
+            const y = p.y + Math.sin(angle) * radius;
+            points.push(x, y);
+          }
+          sprite.poly(points).fill(color);
+          break;
       }
 
-      sprite.circle(p.x, p.y, p.size / 2).fill(color);
       sprite.visible = true;
 
       // Add to stage if not already added
       if (!sprite.parent) {
         this.particlesLayer.addChild(sprite);
       }
-    });
+    }
 
     // Debug: log particle count occasionally
     if (Math.random() < 0.01) {

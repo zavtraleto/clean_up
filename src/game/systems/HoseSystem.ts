@@ -2,6 +2,7 @@ import { SpatialHash } from "../core/SpatialHash";
 import { Particle } from "../core/Particle";
 import { ParticleState } from "../types";
 import { CoverageMap } from "../core/CoverageMap";
+import { DIRT_CONFIGS } from "../config/DirtConfigs";
 
 // HOSES SYSTEM LOL
 export class HoseSystem {
@@ -37,17 +38,28 @@ export class HoseSystem {
 
     for (let i = 0; i < this.queryResults.length; i++) {
       const p = this.queryResults[i];
+      const config = DIRT_CONFIGS[p.dirtType];
+
+      // Only work on dirt types that are effective against hose
+      if (!config.tools.hoseEffective) {
+        continue;
+      }
 
       // Hose can loosen stuck particles (pressure washing effect)
-      if (p.state === ParticleState.STUCK && Math.random() < 0.4) {
+      if (
+        p.state === ParticleState.STUCK &&
+        Math.random() < 0.4 * config.physics.stickiness
+      ) {
         p.state = ParticleState.LOOSE;
+        p.fadeTimer = 0; // Reset lifespan timer
         this.cov.removeAt(p.x, p.y, p.size * 0.9);
       }
 
       // Push loose particles with hose force
       if (p.state === ParticleState.LOOSE) {
-        p.vx += ux * force;
-        p.vy += uy * force;
+        const forceMultiplier = config.removal.removalForce / 50; // Normalize to base force
+        p.vx += ux * force * forceMultiplier;
+        p.vy += uy * force * forceMultiplier;
       }
     }
 

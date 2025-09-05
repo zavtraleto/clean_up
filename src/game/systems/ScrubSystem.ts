@@ -2,6 +2,7 @@ import { ParticleState } from "../types";
 import { SpatialHash } from "../core/SpatialHash";
 import { CoverageMap } from "../core/CoverageMap";
 import { Particle } from "../core/Particle";
+import { DIRT_CONFIGS } from "../config/DirtConfigs";
 
 export class ScrubSystem {
   lastX = 0;
@@ -29,12 +30,26 @@ export class ScrubSystem {
 
     for (let i = 0; i < this.queryResults.length; i++) {
       const p = this.queryResults[i];
+      const config = DIRT_CONFIGS[p.dirtType];
+
+      // Only work on dirt types that are effective against scrubbing
+      if (!config.tools.scrubEffective) {
+        continue;
+      }
 
       if (
         p.state === ParticleState.STUCK &&
-        Math.random() < loosen * (0.3 + power * 0.7)
+        Math.random() < loosen * (0.3 + power * 0.7) * config.physics.stickiness
       ) {
-        p.state = ParticleState.LOOSE;
+        // Handle grease fade-out vs normal particle physics
+        if (config.removal.fadeOut) {
+          p.isFading = true;
+          p.fadeTimer = 0;
+        } else {
+          p.state = ParticleState.LOOSE;
+          p.fadeTimer = 0; // Reset lifespan timer
+        }
+
         this.cov.removeAt(p.x, p.y, p.size * 0.9);
       }
 
@@ -43,8 +58,10 @@ export class ScrubSystem {
         const dy = p.y - y;
         const len = Math.hypot(dx, dy) || 1;
         const kickMultiplier = 0.5 + power * 0.5; // Scale kick with movement speed
-        p.vx += (dx / len) * baseKick * kickMultiplier;
-        p.vy += (dy / len) * baseKick * kickMultiplier;
+        const forceMultiplier = config.removal.removalForce / 50; // Normalize to base force
+
+        p.vx += (dx / len) * baseKick * kickMultiplier * forceMultiplier;
+        p.vy += (dy / len) * baseKick * kickMultiplier * forceMultiplier;
       }
     }
 
