@@ -3,6 +3,7 @@ import { Particle } from "../core/Particle";
 import { ParticleState } from "../types";
 import { CoverageMap } from "../core/CoverageMap";
 
+// HOSES SYSTEM LOL
 export class HoseSystem {
   private queryResults: Particle[] = []; // Reused array
 
