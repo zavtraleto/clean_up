@@ -4,7 +4,7 @@ export class SpritePool {
   private pool: Graphics[] = [];
   private used: Graphics[] = [];
 
-  constructor(private capacity: number) {
+  constructor(capacity: number) {
     for (let i = 0; i < capacity; i++) {
       const sprite = new Graphics();
       this.pool.push(sprite);

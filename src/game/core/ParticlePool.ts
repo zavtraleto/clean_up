@@ -4,7 +4,7 @@ export class ParticlePool {
   private pool: Particle[] = [];
   private used: Particle[] = [];
 
-  constructor(private capacity: number) {
+  constructor(capacity: number) {
     for (let i = 0; i < capacity; i++) {
       this.pool.push(new Particle());
     }
