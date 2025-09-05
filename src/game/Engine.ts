@@ -3,6 +3,7 @@ import { ParticlePool } from "./core/ParticlePool";
 import { SpatialHash } from "./core/SpatialHash";
 import { CoverageMap } from "./core/CoverageMap";
 import { SpritePool } from "./core/SpritePool";
+import { WaterStream } from "./core/WaterStream";
 import { DirtSystem } from "./systems/DirtSystem";
 import { ScrubSystem } from "./systems/ScrubSystem";
 import { HoseSystem } from "./systems/HoseSystem";
@@ -41,6 +42,8 @@ export class Engine {
   usingHose = false;
   nozzle = { x: 0, y: 0 };
   pointer = { x: 0, y: 0 };
+  isPressed = false;
+  waterStream?: WaterStream;
 
   private lastProgress = 0;
   private completionTriggered = false;
@@ -198,7 +201,15 @@ export class Engine {
     });
 
     this.stage.on("pointerdown", () => {
-      // Could add touch feedback here
+      this.isPressed = true;
+    });
+
+    this.stage.on("pointerup", () => {
+      this.isPressed = false;
+    });
+
+    this.stage.on("pointerupoutside", () => {
+      this.isPressed = false;
     });
   }
 
@@ -390,39 +401,68 @@ export class Engine {
       this.hash.insert(p);
     }
 
-    // Apply input interactions
-    if (this.usingHose) {
-      // Convert world coordinates to object-relative coordinates for cleaning
-      const nozzleObj = this.worldToObjectCoords(this.nozzle.x, this.nozzle.y);
-      const pointerObj = this.worldToObjectCoords(
-        this.pointer.x,
-        this.pointer.y
-      );
+    // Apply input interactions - only when pressed/touching
+    if (this.isPressed) {
+      if (this.usingHose) {
+        // Create or update water stream from cursor to object center
+        const objectCenterX = this.app.screen.width / 2;
+        const objectCenterY = this.app.screen.height / 2;
 
-      this.hose.update(
-        nozzleObj.x,
-        nozzleObj.y,
-        pointerObj.x,
-        pointerObj.y,
-        this.tools.hose.angleDeg,
-        this.tools.hose.range,
-        this.tools.hose.force
-      );
+        if (!this.waterStream) {
+          this.waterStream = new WaterStream(
+            this.pointer.x,
+            this.pointer.y,
+            objectCenterX,
+            objectCenterY
+          );
+        }
+
+        this.waterStream.update(
+          this.pointer.x,
+          this.pointer.y,
+          objectCenterX,
+          objectCenterY,
+          dt
+        );
+
+        // Use the stream's impact point for cleaning
+        const impactPoint = this.waterStream.getImpactPoint();
+        const impactObj = this.worldToObjectCoords(
+          impactPoint.x,
+          impactPoint.y
+        );
+
+        this.hose.update(
+          impactObj.x - 20, // Offset for nozzle effect
+          impactObj.y - 20,
+          impactObj.x,
+          impactObj.y,
+          this.tools.hose.angleDeg,
+          this.tools.hose.range,
+          this.tools.hose.force
+        );
+      } else {
+        // Convert world coordinates to object-relative coordinates for cleaning
+        const pointerObj = this.worldToObjectCoords(
+          this.pointer.x,
+          this.pointer.y
+        );
+
+        // Smaller radius for more precise scrubbing
+        const smallerRadius = this.tools.scrub.radius * 0.4; // Much smaller radius
+
+        this.scrub.update(
+          pointerObj.x,
+          pointerObj.y,
+          performance.now() / 1000,
+          smallerRadius,
+          this.tools.scrub.loosenChance,
+          this.tools.scrub.baseKick
+        );
+      }
     } else {
-      // Convert world coordinates to object-relative coordinates for cleaning
-      const pointerObj = this.worldToObjectCoords(
-        this.pointer.x,
-        this.pointer.y
-      );
-
-      this.scrub.update(
-        pointerObj.x,
-        pointerObj.y,
-        performance.now() / 1000,
-        this.tools.scrub.radius,
-        this.tools.scrub.loosenChance,
-        this.tools.scrub.baseKick
-      );
+      // Reset water stream when not pressed
+      this.waterStream = undefined;
     }
 
     // Update object tilt based on cursor position
@@ -545,42 +585,49 @@ export class Engine {
     // Clear previous hose graphics
     this.hoseLayer.removeChildren();
 
-    if (!this.usingHose) return;
+    if (!this.usingHose || !this.isPressed || !this.waterStream) return;
 
-    // Draw water stream from nozzle to pointer
+    // Draw spring water stream
     const graphics = new Graphics();
+    const segments = this.waterStream.getSegments();
 
-    // Calculate direction and distance
-    const dx = this.pointer.x - this.nozzle.x;
-    const dy = this.pointer.y - this.nozzle.y;
-    const distance = Math.hypot(dx, dy);
-    const maxRange = this.tools.hose.range;
+    if (segments.length < 2) return;
 
-    if (distance > maxRange) {
-      // Limit to max range
-      const scale = maxRange / distance;
-      const endX = this.nozzle.x + dx * scale;
-      const endY = this.nozzle.y + dy * scale;
+    // Draw water stream with smooth curves between segments
+    graphics.moveTo(segments[0].x, segments[0].y);
 
-      // Draw water stream
-      graphics.moveTo(this.nozzle.x, this.nozzle.y);
-      graphics.lineTo(endX, endY);
-      graphics.stroke({ width: 8, color: 0x87ceeb, alpha: 0.6 });
+    for (let i = 1; i < segments.length; i++) {
+      const segment = segments[i];
+      const prevSegment = segments[i - 1];
 
-      // Draw water cone at the end
-      const coneRadius = 20;
-      graphics.circle(endX, endY, coneRadius);
-      graphics.fill({ color: 0x87ceeb, alpha: 0.3 });
-    } else {
-      // Draw to pointer position
-      graphics.moveTo(this.nozzle.x, this.nozzle.y);
-      graphics.lineTo(this.pointer.x, this.pointer.y);
-      graphics.stroke({ width: 8, color: 0x87ceeb, alpha: 0.6 });
+      // Create smooth curve between segments
+      if (i === 1) {
+        graphics.lineTo(segment.x, segment.y);
+      } else {
+        const midX = (prevSegment.x + segment.x) / 2;
+        const midY = (prevSegment.y + segment.y) / 2;
+        graphics.quadraticCurveTo(prevSegment.x, prevSegment.y, midX, midY);
+      }
+    }
 
-      // Draw water cone at pointer
-      const coneRadius = 20;
-      graphics.circle(this.pointer.x, this.pointer.y, coneRadius);
-      graphics.fill({ color: 0x87ceeb, alpha: 0.3 });
+    // Style the water stream
+    graphics.stroke({ width: 8, color: 0x87ceeb, alpha: 0.7 });
+
+    // Draw water impact at the end
+    const impactPoint = this.waterStream.getImpactPoint();
+    const impactRadius = 15;
+    graphics.circle(impactPoint.x, impactPoint.y, impactRadius);
+    graphics.fill({ color: 0x87ceeb, alpha: 0.4 });
+
+    // Add water particles effect around impact
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const distance = 8 + Math.random() * 12;
+      const splashX = impactPoint.x + Math.cos(angle) * distance;
+      const splashY = impactPoint.y + Math.sin(angle) * distance;
+
+      graphics.circle(splashX, splashY, 2 + Math.random() * 3);
+      graphics.fill({ color: 0x87ceeb, alpha: 0.3 + Math.random() * 0.3 });
     }
 
     this.hoseLayer.addChild(graphics);
